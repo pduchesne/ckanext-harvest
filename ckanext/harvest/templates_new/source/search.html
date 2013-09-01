@@ -2,11 +2,20 @@
 
 {% block subtitle %}{{ _("Harvest sources") }}{% endblock %}
 
+{# CKAN 2.0 template #}
 {% block add_action_content %}
   <a href="{{ h.url_for('{0}_new'.format(c.dataset_type)) }}" class="btn btn-primary">
     <i class="icon-plus-sign-alt"></i>
     {{ _('Add Harvest Source') }}
   </a>
+{% endblock %}
+
+{# CKAN 2.1+ template #}
+{% block page_primary_action %}
+    <a href="{{ h.url_for('{0}_new'.format(c.dataset_type)) }}" class="btn btn-primary">
+        <i class="icon-plus-sign-alt"></i>
+        {{ _('Add Harvest Source') }}
+    </a>
 {% endblock %}
 
 {% block breadcrumb_content %}
@@ -73,6 +82,11 @@
       {% endif %}
 
       {% else %}
+        {% if self.page_primary_action() | trim %}
+          <div class="page_primary_action">
+              {{ self.page_primary_action() }}
+          </div>
+        {% endif %}
         {% set facets = {
           'fields': c.fields_grouped,
           'search': c.search_facets,
