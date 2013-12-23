@@ -175,18 +175,26 @@ class CKANHarvester(HarvesterBase):
                         self._save_gather_error('Unable to get content for URL: %s: %s' % (url, str(e)),harvest_job)
                         return None
 
-
-
         if get_all_packages:
             # Request all remote packages
-            url = base_rest_url + '/package'
+
+            search_query = self.config.get('search_query', None)
+            if search_query:
+                url = base_rest_url + '/package'
+            else:
+                url = base_search_url + '/dataset?q='+search_query
+
             try:
                 content = self._get_content(url)
             except Exception,e:
                 self._save_gather_error('Unable to get content for URL: %s: %s' % (url, str(e)),harvest_job)
                 return None
 
-            package_ids = json.loads(content)
+            if search_query:
+                package_ids = json.loads(content.get('results'))
+            else:
+                package_ids = json.loads(content)
+
 
         try:
             object_ids = []
