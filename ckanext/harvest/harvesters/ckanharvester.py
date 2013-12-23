@@ -182,7 +182,7 @@ class CKANHarvester(HarvesterBase):
             if search_query:
                 url = base_rest_url + '/package'
             else:
-                url = base_search_url + '/dataset?q='+search_query
+                url = base_search_url + '/dataset?'+search_query
 
             try:
                 content = self._get_content(url)
