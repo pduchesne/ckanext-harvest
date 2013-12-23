@@ -29,6 +29,18 @@
 
 {% block primary_content %}
    <section class="module">
+       {% block page_header %}
+           <header class="module-content page-header">
+               {% if self.content_action() | trim %}
+                   <div class="content_action">
+                       {{ self.content_action() }}
+                   </div>
+               {% endif %}
+               <ul class="nav nav-tabs">
+                   {{ self.content_primary_nav() }}
+               </ul>
+           </header>
+       {% endblock %}
     <div class="module-content">
       {% if c.__version__.startswith('2.0') %}
       <form id="dataset-search" class="dataset-search clearfix" method="get" data-module="select-switch">
@@ -87,11 +99,7 @@
       {% endif %}
 
       {% else %}
-        {% if self.page_primary_action() | trim %}
-          <div class="page_primary_action">
-              {{ self.page_primary_action() }}
-          </div>
-        {% endif %}
+
         {% set facets = {
           'fields': c.fields_grouped,
           'search': c.search_facets,
