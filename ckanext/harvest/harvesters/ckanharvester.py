@@ -191,7 +191,7 @@ class CKANHarvester(HarvesterBase):
                 return None
 
             if search_query:
-                package_ids = json.loads(content.get('results'))
+                package_ids = json.loads(content).get('results')
             else:
                 package_ids = json.loads(content)
 
