@@ -180,9 +180,9 @@ class CKANHarvester(HarvesterBase):
 
             search_query = self.config.get('search_query', None)
             if search_query:
-                url = base_rest_url + '/package'
-            else:
                 url = base_search_url + '/dataset?'+search_query
+            else:
+                url = base_rest_url + '/package'
 
             try:
                 content = self._get_content(url)
