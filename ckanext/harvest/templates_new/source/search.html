@@ -2,20 +2,25 @@
 
 {% block subtitle %}{{ _("Harvest sources") }}{% endblock %}
 
-{# CKAN 2.0 template #}
-{% block add_action_content %}
+{% set authorized_user = h.check_access('harvest_source_create') %}
+
+{% block add_link %}
+  {% if authorized_user %}
   <a href="{{ h.url_for('{0}_new'.format(c.dataset_type)) }}" class="btn btn-primary">
     <i class="icon-plus-sign-alt"></i>
     {{ _('Add Harvest Source') }}
   </a>
+  {% endif %}
 {% endblock %}
 
-{# CKAN 2.1+ template #}
-{% block page_primary_action %}
-    <a href="{{ h.url_for('{0}_new'.format(c.dataset_type)) }}" class="btn btn-primary">
-        <i class="icon-plus-sign-alt"></i>
-        {{ _('Add Harvest Source') }}
-    </a>
+{# CKAN 2.0 #}
+{% block add_action_content %}
+  {{ self.add_link() }}
+{% endblock %}
+
+{# CKAN 2.1 #}
+{% block content_action %}
+  {{ self.add_link() }}
 {% endblock %}
 
 {% block breadcrumb_content %}
