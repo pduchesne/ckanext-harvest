@@ -27,7 +27,8 @@ from ckanext.harvest.queue import get_gather_publisher, resubmit_jobs
 
 from ckanext.harvest.model import HarvestSource, HarvestJob, HarvestObject
 from ckanext.harvest.logic import HarvestJobExists
-from ckanext.harvest.logic.schema import harvest_source_show_package_schema
+from ckanext.harvest.logic.schema import harvest_source_show_package_schema,default_harvest_source_schema
+from ckanext.harvest.logic.dictization import harvest_source_dictize, harvest_job_dictize
 
 from ckanext.harvest.logic.action.get import harvest_source_show, harvest_job_list, _get_sources_for_user
 
@@ -392,9 +393,9 @@ def harvest_sources_reindex(context, data_dict):
     model = context['model']
 
     packages = model.Session.query(model.Package) \
-                            .filter(model.Package.type==DATASET_TYPE_NAME) \
-                            .filter(model.Package.state==u'active') \
-                            .all()
+        .filter(model.Package.type==DATASET_TYPE_NAME) \
+        .filter(model.Package.state==u'active') \
+        .all()
 
     package_index = PackageSearchIndex()
 
@@ -417,7 +418,7 @@ def harvest_source_reindex(context, data_dict):
         del context['extras_as_string']
     context.update({'ignore_auth': True})
     package_dict = logic.get_action('harvest_source_show')(context,
-        {'id': harvest_source_id})
+                                                           {'id': harvest_source_id})
     log.debug('Updating search index for harvest source {0}'.format(harvest_source_id))
 
     # Remove configuration values
@@ -431,3 +432,27 @@ def harvest_source_reindex(context, data_dict):
     package_index.index_package(new_dict, defer_commit=defer_commit)
 
     return True
+
+def harvest_job_abort(context, data_dict):
+
+    check_access('harvest_job_abort', context, data_dict)
+
+    model = context['model']
+
+    source_id = data_dict.get('source_id', None)
+    jobs = get_action('harvest_job_list')(context,
+                                          {'source_id': source_id})
+    if not jobs:
+        raise NotFound('Error: source has no jobs')
+    job = jobs[0]  # latest one
+
+    if job['status'] not in ('Finished', 'Aborted'):
+        job_obj = HarvestJob.get(job['id'])
+        job_obj.status = new_status = 'Aborted'
+        model.repo.commit_and_remove()
+        log.info('Changed the harvest job status to "{0}"'.format(new_status))
+    else:
+        log.info('Nothing to do')
+
+    job_obj = HarvestJob.get(job['id'])
+    return harvest_job_dictize(job_obj, context)

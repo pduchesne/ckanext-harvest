@@ -62,6 +62,10 @@ class Harvester(CkanCommand):
       harvester reindex
         - reindexes the harvest source datasets
 
+      harvester job-abort {source-id}
+        - marks a job as "Aborted" so that the source can be restarted afresh.
+          Does not actually stop running or queued harvest fetchs/objects.
+
     The commands should be run from the ckanext-harvest directory and expect
     a development.ini file to be present. Most of the time you will
     specify the config explicitly though::
@@ -149,6 +153,9 @@ class Harvester(CkanCommand):
             pprint(harvesters_info)
         elif cmd == 'reindex':
             self.reindex()
+        elif cmd == 'job-abort':
+            source_id = unicode(self.args[1])
+            self.job_abort(source_id)
         else:
             print 'Command %s not recognized' % cmd
 
@@ -317,6 +324,14 @@ class Harvester(CkanCommand):
         context = {'model': model, 'user': self.admin_user['name']}
         get_action('harvest_sources_reindex')(context,{})
 
+    def job_abort(self, source_id):
+        # Get the latest job
+        from ckan import model
+        context = {'model': model, 'user': self.admin_user['name'],
+                   'session': model.Session}
+        job = get_action('harvest_job_abort')(context,
+                                              {'source_id': source_id})
+        print 'Job status: {0}'.format(job['status'])
 
     def print_harvest_sources(self, sources):
         if sources:
