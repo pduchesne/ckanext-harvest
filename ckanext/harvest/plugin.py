@@ -56,7 +56,9 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
 
     def before_view(self, data_dict):
 
-        if not 'type' in data_dict or data_dict['type'] != DATASET_TYPE_NAME:
+        # check_ckan_version should be more clever than this
+        if p.toolkit.check_ckan_version(max_version='2.1.99') and (
+           not 'type' in data_dict or data_dict['type'] != DATASET_TYPE_NAME):
             # This is a normal dataset, check if it was harvested and if so, add
             # info about the HarvestObject and HarvestSource
             harvest_object = model.Session.query(HarvestObject) \
@@ -84,7 +86,7 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
                 log.error('Harvest source not found for dataset {0}'.format(data_dict['id']))
                 return data_dict
 
-            data_dict['status'] = harvest_logic.action.get.harvest_source_show_status(context, {'id': source.id})
+            data_dict['status'] = p.toolkit.get_action('harvest_source_show_status')(context, {'id': source.id})
 
         elif not 'type' in data_dict or data_dict['type'] != DATASET_TYPE_NAME:
             # This is a normal dataset, check if it was harvested and if so, add
@@ -95,7 +97,21 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
                     .filter(HarvestObject.current==True) \
                     .first()
 
-            # validate is false is passed only on indexing.
+            # If the harvest extras are there, remove them. This can happen eg
+            # when calling package_update or resource_update, which call
+            # package_show
+            if data_dict.get('extras'):
+                data_dict['extras'][:] = [e for e in data_dict.get('extras', [])
+                                          if not e['key']
+                                          in ('harvest_object_id', 'harvest_source_id', 'harvest_source_title',)]
+
+
+            # We only want to add these extras at index time so they are part
+            # of the cached data_dict used to display, search results etc. We
+            # don't want them added when editing the dataset, otherwise we get
+            # duplicated key errors.
+            # The only way to detect indexing right now is checking that
+            # validate is set to False.
             if harvest_object and not context.get('validate', True):
                 for key, value in [
                     ('harvest_object_id', harvest_object.id),
@@ -194,6 +210,7 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
         map.connect('harvest_job_show', '/' + DATASET_TYPE_NAME + '/{source}/job/{id}', controller=controller, action='show_job')
 
         map.connect('harvest_object_show', '/' + DATASET_TYPE_NAME + '/object/:id', controller=controller, action='show_object')
+        map.connect('harvest_object_for_dataset_show', '/dataset/harvest_object/:id', controller=controller, action='show_object', ref_type='dataset')
 
         org_controller = 'ckanext.harvest.controllers.organization:OrganizationController'
         map.connect('{0}_org_list'.format(DATASET_TYPE_NAME), '/organization/' + DATASET_TYPE_NAME + '/' + '{id}', controller=org_controller, action='source_list')
@@ -272,11 +289,8 @@ def _get_logic_functions(module_root, logic_functions = {}):
 
     for module_name in ['get', 'create', 'update','delete']:
         module_path = '%s.%s' % (module_root, module_name,)
-        try:
-            module = __import__(module_path)
-        except ImportError:
-            log.debug('No auth module for action "{0}"'.format(module_name))
-            continue
+
+        module = __import__(module_path)
 
         for part in module_path.split('.')[1:]:
             module = getattr(module, part)

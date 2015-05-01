@@ -2,6 +2,9 @@
 ckanext-harvest - Remote harvesting extension
 =============================================
 
+.. image:: https://travis-ci.org/ckan/ckanext-harvest.svg?branch=master
+    :target: https://travis-ci.org/ckan/ckanext-harvest
+
 This extension provides a common harvesting framework for ckan extensions
 and adds a CLI and a WUI to CKAN to manage harvesting sources and jobs.
 
@@ -9,15 +12,25 @@ Installation
 ============
 
 1. The harvest extension can use two different backends. You can choose whichever
-   you prefer depending on your needs:
+   you prefer depending on your needs, but Redis has been found to be more stable
+   and reliable so it is the recommended one:
+
+   * `Redis <http://redis.io/>`_ (recommended): To install it, run::
+
+      sudo apt-get install redis-server
+
+     On your CKAN configuration file, add::
+
+      ckan.harvest.mq.type = redis
 
    * `RabbitMQ <http://www.rabbitmq.com/>`_: To install it, run::
 
       sudo apt-get install rabbitmq-server
 
-   * `Redis <http://redis.io/>`_: To install it, run::
+     On your CKAN configuration file, add::
 
-      sudo apt-get install redis-server
+      ckan.harvest.mq.type = rabbitmq
+
 
 2. Install the extension into your python environment.
 
@@ -48,7 +61,7 @@ Installation
 
     ckan.plugins = harvest ckan_harvester
 
-5. Also define the backend that you are using with the ``ckan.harvest.mq.type``
+5. If you haven't done it yet on the previous step, define the backend that you are using with the ``ckan.harvest.mq.type``
    option (it defaults to ``rabbitmq``)::
 
     ckan.harvest.mq.type = redis
@@ -61,9 +74,13 @@ Run the following command to create the necessary tables in the database::
 
     paster --plugin=ckanext-harvest harvester initdb --config=mysite.ini
 
+Finally, restart CKAN to have the changes take affect:
+
+    sudo service apache2 restart
+
 After installation, the harvest source listing should be available under /harvest, eg:
 
-	http://localhost:5000/harvest
+    http://localhost:5000/harvest
 
 
 Command line interface
@@ -205,6 +222,12 @@ field. The currently supported configuration options are:
     Setting it to 'only_local' will just import organizations which id is already
     present in the local CKAN. Setting it to 'create' will make an attempt to
     create the organizations by copying the details from the remote CKAN.
+
+*   clean_tags: By default, tags are not stripped of accent characters, spaces and
+    capital letters for display. If this option is set to True, accent characters
+    will be replaced by their ascii equivalents, capital letters replaced by
+    lower-case ones, and spaces replaced with dashes. Setting this option to False
+    gives the same effect as leaving it unset.
 
 Here is an example of a configuration object (the one that must be entered in
 the configuration field)::

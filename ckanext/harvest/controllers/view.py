@@ -1,5 +1,13 @@
 import re
 import xml.etree.ElementTree as etree
+try:
+    # Python 2.7
+    xml_parser_exception = etree.ParseError
+except AttributeError:
+    # Python 2.6
+    from xml.parsers import expat
+    xml_parser_exception = expat.ExpatError
+
 from pylons.i18n import _
 
 from ckan import model
@@ -80,11 +88,14 @@ class ViewController(BaseController):
 
         redirect(h.url_for('{0}_admin'.format(DATASET_TYPE_NAME), id=id))
 
-    def show_object(self,id):
+    def show_object(self, id, ref_type='object'):
 
         try:
             context = {'model':model, 'user':c.user}
-            obj = p.toolkit.get_action('harvest_object_show')(context, {'id':id})
+            if ref_type == 'object':
+                obj = p.toolkit.get_action('harvest_object_show')(context, {'id': id})
+            elif ref_type == 'dataset':
+                obj = p.toolkit.get_action('harvest_object_show')(context, {'dataset_id': id})
 
             # Check content type. It will probably be either XML or JSON
             try:
@@ -95,13 +106,15 @@ class ViewController(BaseController):
                     content = obj['extras']['original_document']
                 else:
                     abort(404,_('No content found'))
-
-                etree.fromstring(re.sub('<\?xml(.*)\?>','',content))
+                try:
+                    etree.fromstring(re.sub('<\?xml(.*)\?>','',content))
+                except UnicodeEncodeError:
+                    etree.fromstring(re.sub('<\?xml(.*)\?>','',content.encode('utf-8')))
                 response.content_type = 'application/xml; charset=utf-8'
                 if not '<?xml' in content.split('\n')[0]:
                     content = u'<?xml version="1.0" encoding="UTF-8"?>\n' + content
 
-            except etree.ParseError:
+            except xml_parser_exception:
                 try:
                     json.loads(obj['content'])
                     response.content_type = 'application/json; charset=utf-8'
@@ -111,8 +124,8 @@ class ViewController(BaseController):
 
             response.headers['Content-Length'] = len(content)
             return content.encode('utf-8')
-        except p.toolkit.ObjectNotFound:
-            abort(404,_('Harvest object not found'))
+        except p.toolkit.ObjectNotFound, e:
+            abort(404,_(str(e)))
         except p.toolkit.NotAuthorized:
             abort(401,self.not_auth_message)
         except Exception, e:
