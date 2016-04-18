@@ -23,7 +23,7 @@
   {{ form.markdown('notes', id='field-notes', label=_('Description'), value=data.notes, error=errors.notes) }}
 
   <div class="harvest-types control-group">
-    <label class="control-label">Source type</label>
+    <label class="control-label">{{  _('Source type') }}</label>
     <div class="controls">
       {% for harvester in h.harvesters_info() %}
         {% set checked = False %}

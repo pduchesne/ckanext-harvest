@@ -14,6 +14,12 @@
   {% block add_action_content %}
     {{ h.snippet('snippets/add_source_button.html', dataset_type=c.dataset_type) }}
   {% endblock %}
+{% else %}
+    {% block page_primary_action %}
+        <div class="page_primary_action">
+            {{ h.snippet('snippets/add_source_button.html', dataset_type=c.dataset_type) }}
+        </div>
+    {% endblock %}
 {% endif %}
 
 {% block primary_content %}
@@ -27,11 +33,6 @@
 
     <section class="module">
       <div class="module-content">
-        {% block page_primary_action %}
-          <div class="page_primary_action">
-            {{ h.snippet('snippets/add_source_button.html', dataset_type=c.dataset_type) }}
-          </div>
-        {% endblock %}
 
         {% set facets = {
           'fields': c.fields_grouped,
