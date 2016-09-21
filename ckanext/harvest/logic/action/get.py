@@ -301,6 +301,34 @@ def harvest_object_list(context,data_dict):
 
     return [getattr(obj,'id') for obj in objects]
 
+
+@side_effect_free
+def stale_harvested_packages(context, data_dict):
+    model = context['model']
+    session = context['session']
+
+    source_id = data_dict.get('source_id',False)
+
+    # Overall statistics
+    current_packages = model.Session.query(model.Package) \
+        .join(harvest_model.HarvestObject) \
+        .filter(harvest_model.HarvestObject.current==True) \
+        .filter(model.Package.state==u'active')
+    if (source_id): current_packages.filter(harvest_model.HarvestObject.harvest_source_id==source_id)
+
+    current_ids = [getattr(obj,'id') for obj in current_packages.all()]
+
+    packages = model.Session.query(model.Package) \
+        .join(harvest_model.HarvestObject) \
+        .filter(harvest_model.HarvestObject.current==False) \
+        .filter(model.Package.state==u'active')
+    if (source_id): packages.filter(harvest_model.HarvestObject.harvest_source_id==source_id)
+
+    ids = [getattr(obj,'id') for obj in packages.all()]
+
+    return list(set(ids) - set(current_ids))
+
+
 @side_effect_free
 def harvesters_info_show(context,data_dict):
 
