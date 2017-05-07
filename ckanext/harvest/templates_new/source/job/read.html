@@ -14,6 +14,16 @@
 
   {% if c.job.status == 'Finished' %}
 
+      {% if c.job.object_warning_summary|length == 0 %}
+          <h2>{{ _('Warning Summary') }}</h2>
+          <p class="empty">{{ _('No warning for this job') }}</p>
+      {% else %}
+          <h2>
+              {{ _('Warning Summary') }}
+          </h2>
+          {% snippet 'snippets/job_error_summary.html', summary=c.job.object_warning_summary %}
+      {% endif %}
+
     {% if c.job.object_error_summary|length == 0 and c.job.gather_error_summary|length == 0 %}
       <h2>{{ _('Error Summary') }}</h2>
       <p class="empty">{{ _('No errors for this job') }}</p>

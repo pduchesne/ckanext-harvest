@@ -3,7 +3,7 @@ import ckan.logic as logic
 
 from ckan.model import Package,Group
 from ckanext.harvest.model import HarvestSource, HarvestJob, HarvestObject, \
-                                  HarvestGatherError, HarvestObjectError
+                                  HarvestGatherError, HarvestObjectError, HarvestObjectExtra
 
 
 def harvest_source_dictize(source, context):
@@ -66,6 +66,14 @@ def harvest_job_dictize(job, context):
                           .order_by('error_count desc') \
                           .limit(context.get('error_summmary_limit', 20))
         out['object_error_summary'] = q.all()
+        q = model.Session.query(HarvestObjectExtra.value, \
+                                func.count(HarvestObjectExtra.value).label('warning_count')) \
+            .join(HarvestObject) \
+            .filter(HarvestObject.harvest_job_id==job.id) \
+            .group_by(HarvestObjectExtra.value) \
+            .order_by('warning_count desc') \
+            .limit(context.get('error_summmary_limit', 20))
+        out['object_warning_summary'] = q.all()
         q = model.Session.query(HarvestGatherError.message, \
                                 func.count(HarvestGatherError.message).label('error_count')) \
                           .filter(HarvestGatherError.harvest_job_id==job.id) \
