@@ -193,7 +193,7 @@ class HarvestObjectError(HarvestDomainObject):
         '''
         Helper function to create an error object and save it.
         '''
-        err = cls(message=message, object=object,
+        err = cls(message=unicode(message), object=object,
                   stage=stage, line=line)
         try:
             err.save()
