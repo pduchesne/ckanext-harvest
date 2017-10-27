@@ -15,8 +15,10 @@ from ckanext.harvest.interfaces import IHarvester
 from ckan.lib.search.common import SearchIndexError, make_connection
 
 
-from ckan.model import Package
+from ckan.model import Package, Group, User
 from ckan import logic
+import ckan.model as model
+import ckan.lib.helpers as h
 from ckan.plugins import toolkit
 
 
@@ -349,6 +351,63 @@ def harvest_jobs_run(context,data_dict):
                           .first()
                     if last_object:
                         job_obj.finished = last_object.import_finished
+
+
+                    try:
+                        source_pkg = get_action('package_show')(context, {'id': job_obj.source.id})
+                        source_config = job_obj.source.config and json.loads(job_obj.source.config)
+
+                        if (source_config['email_reporting'] == 'always' or
+                                (source_config['email_reporting'] == 'on_error' and len(job_obj.gather_errors) > 0)):
+                            import ckan.lib.mailer
+
+                            creator = User.get(source_pkg['creator_user_id'])
+                            #owner = get_action('user_show')(context, {'id': source_pkg.creator_user_id})
+                            owner_org = source_pkg.get('organization') and Group.get(source_pkg.get('organization')['id'])
+                            admins = owner_org and [role.user for role in owner_org.roles if role.role =='admin' ]
+                            #if source_pkg.get('organization') :
+                            #    q = model.Session.query(model.Member)\
+                            #        .filter(model.Member.group_id == source_pkg.get('organization')['id'])\
+                            #        .filter(model.Member.state == "active")\
+                            #        .filter(model.Member.table_name == "user")\
+                            #        .filter(model.Member.capacity == "admin")
+                            #    admins = [User.get(m.get('id')) for m in q.all()]
+
+                            harvest_job_url = h.url_for('harvest_job_show', id = job_obj.id, source = job_obj.source.id, qualified = True)
+
+                            body =  "Harvest Job finished \n"
+                            body += "Source: " + job_obj.source.url +"\n\n"
+
+                            body += "Job started: %s \n" % job.get('created')
+                            body += "Job ended: %s \n\n" % job.get('finished')
+
+                            body += "Error(s) : %s  \n" %str(job.get('stats').get('errored', 0))
+                            body += "Added : %s  \n" %str(job.get('stats').get('added', 0))
+                            body += "Updated : %s  \n" %str(job.get('stats').get('updated', 0))
+                            body += "Deleted : %s  \n" %str(job.get('stats').get('deleted', 0))
+
+                            body += "\nComplete report at %s \n" % harvest_job_url
+
+                            #from ckan.lib.base import config
+
+
+                            import ckan.lib.app_globals as app_globals
+                            app_globals.reset()
+
+                            import pylons
+                            pylons.app_globals._push_object(app_globals.app_globals)
+
+                            ckan.lib.mailer._mail_recipients(
+                                [(u.display_name, u.email) for u in [creator]+admins ],
+                                creator.display_name,
+                                creator.email,
+                                "Harvesting Job status for " + source_pkg.get('title'),
+                                body
+                            )
+                    except Exception, e:
+                        log.error('Failed to send email report: %s' % e)
+
+
                     job_obj.save()
                     # Reindex the harvest source dataset so it has the latest
                     # status
