@@ -368,7 +368,7 @@ def harvest_jobs_run(context,data_dict):
                             owner_org = source_pkg.get('organization') and Group.get(source_pkg.get('organization')['id'])
 
                             if source_pkg.get('organization') :
-                                q = model.Session.query(model.user.User, model.Member.capacity). \
+                                q = model.Session.query(model.user.User). \
                                     join(model.Member, model.Member.table_id == model.user.User.id). \
                                     filter(model.Member.group_id == source_pkg.get('organization')['id']). \
                                     filter(model.Member.state == 'active'). \
