@@ -34,6 +34,8 @@ from ckanext.harvest.logic.dictization import harvest_source_dictize, harvest_jo
 
 from ckanext.harvest.logic.action.get import harvest_source_show, harvest_job_list, _get_sources_for_user
 
+from dateutil.tz import tzlocal
+import pytz
 
 log = logging.getLogger(__name__)
 
@@ -378,8 +380,8 @@ def harvest_jobs_run(context,data_dict):
                             body =  "Harvest Job finished \n"
                             body += "Source: " + job_obj.source.url +"\n\n"
 
-                            body += "Job started: %s \n" % job.get('created')
-                            body += "Job ended: %s \n\n" % job.get('finished')
+                            body += "Job started: %s \n" % str(pytz.utc.localize(job_obj.created).astimezone(tzlocal()))
+                            body += "Job ended: %s \n\n" % str(pytz.utc.localize(job_obj.finished).astimezone(tzlocal()))
 
                             body += "Error(s) : %s  \n" %str(job.get('stats').get('errored', 0))
                             body += "Added : %s  \n" %str(job.get('stats').get('added', 0))
