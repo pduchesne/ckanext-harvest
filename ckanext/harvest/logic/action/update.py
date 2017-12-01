@@ -366,14 +366,16 @@ def harvest_jobs_run(context,data_dict):
                             creator = User.get(source_pkg['creator_user_id'])
                             #owner = get_action('user_show')(context, {'id': source_pkg.creator_user_id})
                             owner_org = source_pkg.get('organization') and Group.get(source_pkg.get('organization')['id'])
-                            admins = owner_org and [role.user for role in owner_org.roles if role.role =='admin' ]
-                            #if source_pkg.get('organization') :
-                            #    q = model.Session.query(model.Member)\
-                            #        .filter(model.Member.group_id == source_pkg.get('organization')['id'])\
-                            #        .filter(model.Member.state == "active")\
-                            #        .filter(model.Member.table_name == "user")\
-                            #        .filter(model.Member.capacity == "admin")
-                            #    admins = [User.get(m.get('id')) for m in q.all()]
+
+                            if source_pkg.get('organization') :
+                                q = model.Session.query(model.user.User, model.Member.capacity). \
+                                    join(model.Member, model.Member.table_id == model.user.User.id). \
+                                    filter(model.Member.group_id == source_pkg.get('organization')['id']). \
+                                    filter(model.Member.state == 'active'). \
+                                    filter(model.Member.table_name == "user"). \
+                                    filter(model.Member.capacity == "admin")
+                                admins = q.all()
+
 
                             harvest_job_url = h.url_for('harvest_job_show', id = job_obj.id, source = job_obj.source.id, qualified = True)
 
