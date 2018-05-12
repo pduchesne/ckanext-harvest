@@ -7,12 +7,20 @@ from ckan import logic
 from ckan import model
 import ckan.plugins as p
 from ckan.lib.plugins import DefaultDatasetForm
+try:
+    from ckan.lib.plugins import DefaultTranslation
+except ImportError:
+    class DefaultTranslation():
+        pass
+
 from ckan.lib.navl import dictization_functions
 
 from ckanext.harvest import logic as harvest_logic
 
 from ckanext.harvest.model import setup as model_setup
 from ckanext.harvest.model import HarvestSource, HarvestJob, HarvestObject
+from ckanext.harvest.log import DBLogHandler
+
 
 
 log = getLogger(__name__)
@@ -20,7 +28,8 @@ assert not log.disabled
 
 DATASET_TYPE_NAME = 'harvest'
 
-class Harvest(p.SingletonPlugin, DefaultDatasetForm):
+
+class Harvest(p.SingletonPlugin, DefaultDatasetForm, DefaultTranslation):
 
     p.implements(p.IConfigurable)
     p.implements(p.IRoutes, inherit=True)
@@ -31,6 +40,9 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
     p.implements(p.IPackageController, inherit=True)
     p.implements(p.ITemplateHelpers)
     p.implements(p.IFacets, inherit=True)
+    if p.toolkit.check_ckan_version(min_version='2.5.0'):
+        p.implements(p.ITranslation, inherit=True)
+
 
     startup = False
 
@@ -76,6 +88,16 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
         return data_dict
 
 
+    def before_search(self, search_params):
+        '''Prevents the harvesters being shown in dataset search results.'''
+
+        fq = search_params.get('fq', '')
+        if 'dataset_type:harvest' not in fq:
+            fq = u"{0} -dataset_type:harvest".format(search_params.get('fq', ''))
+            search_params.update({'fq': fq})
+
+        return search_params
+
     def after_show(self, context, data_dict):
 
         if 'type' in data_dict and data_dict['type'] == DATASET_TYPE_NAME:
@@ -86,7 +108,14 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
                 log.error('Harvest source not found for dataset {0}'.format(data_dict['id']))
                 return data_dict
 
-            data_dict['status'] = p.toolkit.get_action('harvest_source_show_status')(context, {'id': source.id})
+            st_action_name = 'harvest_source_show_status'
+            try:
+                status_action = p.toolkit.get_action(st_action_name)
+            except KeyError:
+                logic.clear_actions_cache()
+                status_action = p.toolkit.get_action(st_action_name)
+
+            data_dict['status'] = status_action(context, {'id': source.id})
 
         elif not 'type' in data_dict or data_dict['type'] != DATASET_TYPE_NAME:
             # This is a normal dataset, check if it was harvested and if so, add
@@ -189,6 +218,9 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
 
         # Setup harvest model
         model_setup()
+        
+        # Configure database logger
+        _configure_db_logger(config)
 
         self.startup = False
 
@@ -208,6 +240,7 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
         map.connect('harvest_job_list', '/' + DATASET_TYPE_NAME + '/{source}/job', controller=controller, action='list_jobs')
         map.connect('harvest_job_show_last', '/' + DATASET_TYPE_NAME + '/{source}/job/last', controller=controller, action='show_last_job')
         map.connect('harvest_job_show', '/' + DATASET_TYPE_NAME + '/{source}/job/{id}', controller=controller, action='show_job')
+        map.connect('harvest_job_abort', '/' + DATASET_TYPE_NAME + '/{source}/job/{id}/abort', controller=controller, action='abort_job')
 
         map.connect('harvest_object_show', '/' + DATASET_TYPE_NAME + '/object/:id', controller=controller, action='show_object')
         map.connect('harvest_object_for_dataset_show', '/dataset/harvest_object/:id', controller=controller, action='show_object', ref_type='dataset')
@@ -218,12 +251,14 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
         return map
 
     def update_config(self, config):
-        # check if new templates
-        templates = 'templates'
-        if p.toolkit.check_ckan_version(min_version='2.0'):
-            if not p.toolkit.asbool(config.get('ckan.legacy_templates', False)):
-                templates = 'templates_new'
-        p.toolkit.add_template_directory(config, templates)
+        if not p.toolkit.check_ckan_version(min_version='2.0'):
+            assert 0, 'CKAN before 2.0 not supported by ckanext-harvest - '\
+                'genshi templates not supported any more'
+        if p.toolkit.asbool(config.get('ckan.legacy_templates', False)):
+            log.warn('Old genshi templates not supported any more by '
+                     'ckanext-harvest so you should set ckan.legacy_templates '
+                     'option to True any more.')
+        p.toolkit.add_template_directory(config, 'templates')
         p.toolkit.add_public_directory(config, 'public')
         p.toolkit.add_resource('fanstatic_library', 'ckanext-harvest')
         p.toolkit.add_resource('public/ckanext/harvest/javascript', 'harvest-extra-field')
@@ -252,6 +287,7 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm):
         from ckanext.harvest import helpers as harvest_helpers
         return {
                 'package_list_for_source': harvest_helpers.package_list_for_source,
+                'package_count_for_source': harvest_helpers.package_count_for_source,
                 'harvesters_info': harvest_helpers.harvesters_info,
                 'harvester_types': harvest_helpers.harvester_types,
                 'harvest_frequencies': harvest_helpers.harvest_frequencies,
@@ -287,7 +323,7 @@ def _add_extra(data_dict, key, value):
 
 def _get_logic_functions(module_root, logic_functions = {}):
 
-    for module_name in ['get', 'create', 'update','delete']:
+    for module_name in ['get', 'create', 'update', 'patch', 'delete']:
         module_path = '%s.%s' % (module_root, module_name,)
 
         module = __import__(module_path)
@@ -433,3 +469,57 @@ def _delete_harvest_source_object(context, data_dict):
     log.debug('Harvest source %s deleted', source_id)
 
     return source
+
+def _configure_db_logger(config):
+    # Log scope
+    # 
+    # -1 - do not log to the database
+    #  0 - log everything
+    #  1 - model, logic.action, logic.validators, harvesters
+    #  2 - model, logic.action, logic.validators
+    #  3 - model, logic.action
+    #  4 - logic.action
+    #  5 - model
+    #  6 - plugin
+    #  7 - harvesters
+    #
+    scope = p.toolkit.asint(config.get('ckan.harvest.log_scope', -1))
+    if scope == -1:
+        return
+    
+    parent_logger = 'ckanext.harvest'
+    children = ['plugin', 'model', 'logic.action.create', 'logic.action.delete', 
+                'logic.action.get',  'logic.action.patch', 'logic.action.update', 
+                'logic.validators', 'harvesters.base', 'harvesters.ckanharvester']
+    
+    children_ = {0: children, 1: children[1:], 2: children[1:-2],
+                 3: children[1:-3], 4: children[2:-3], 5: children[1:2],
+                 6: children[:1], 7: children[-2:]}
+    
+    # Get log level from config param - default: DEBUG
+    from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
+    level = config.get('ckan.harvest.log_level', 'debug').upper()
+    if level == 'DEBUG':
+        level = DEBUG
+    elif level == 'INFO':
+        level = INFO
+    elif level == 'WARNING':
+        level = WARNING
+    elif level == 'ERROR':
+        level = ERROR
+    elif level == 'CRITICAL':
+        level = CRITICAL
+    else:
+        level = DEBUG
+
+    loggers = children_.get(scope)
+    
+    # Get root logger and set db handler
+    logger = getLogger(parent_logger)
+    if scope < 1:
+        logger.addHandler(DBLogHandler(level=level))
+
+    # Set db handler to all child loggers
+    for _ in loggers:
+        child_logger = logger.getChild(_)
+        child_logger.addHandler(DBLogHandler(level=level))

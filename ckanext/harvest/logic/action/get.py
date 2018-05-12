@@ -1,4 +1,5 @@
 import logging
+from itertools import groupby
 from sqlalchemy import or_
 from ckan.model import User
 import datetime
@@ -12,15 +13,16 @@ from ckan.logic import NotFound, check_access, side_effect_free
 
 from ckanext.harvest import model as harvest_model
 
-from ckanext.harvest.model import (HarvestSource, HarvestJob, HarvestObject)
+from ckanext.harvest.model import (HarvestSource, HarvestJob, HarvestObject, HarvestLog)
 from ckanext.harvest.logic.dictization import (harvest_source_dictize,
                                                harvest_job_dictize,
-                                               harvest_object_dictize)
+                                               harvest_object_dictize,
+                                               harvest_log_dictize)
 
 log = logging.getLogger(__name__)
 
 @side_effect_free
-def harvest_source_show(context,data_dict):
+def harvest_source_show(context, data_dict):
     '''
     Returns the metadata of a harvest source
 
@@ -30,10 +32,22 @@ def harvest_source_show(context,data_dict):
     :param id: the id or name of the harvest source
     :type id: string
 
+    :param url: url of the harvest source (as an alternative to the id)
+    :type url: string
+
     :returns: harvest source metadata
     :rtype: dictionary
     '''
+    model = context.get('model')
 
+    # Find the source by URL
+    if data_dict.get('url') and not data_dict.get('id'):
+        source = model.Session.query(harvest_model.HarvestSource) \
+                      .filter_by(url=data_dict.get('url')) \
+                      .first()
+        if not source:
+            raise NotFound
+        data_dict['id'] = source.id
 
     source_dict = logic.get_action('package_show')(context, data_dict)
 
@@ -116,33 +130,10 @@ def harvest_source_list(context, data_dict):
 
     sources = _get_sources_for_user(context, data_dict)
 
-    context.update({'detailed':False})
-    return [harvest_source_dictize(source, context) for source in sources]
+    last_job_status = p.toolkit.asbool(data_dict.get('return_last_job_status', False))
 
-@side_effect_free
-def harvest_source_for_a_dataset(context, data_dict):
-    '''
-    TODO: Deprecated, harvest source id is added as an extra to each dataset
-    automatically
-    '''
-    '''For a given dataset, return the harvest source that
-    created or last updated it, otherwise NotFound.'''
+    return [harvest_source_dictize(source, context, last_job_status) for source in sources]
 
-    model = context['model']
-    session = context['session']
-
-    dataset_id = data_dict.get('id')
-
-    query = session.query(HarvestSource)\
-            .join(HarvestObject)\
-            .filter_by(package_id=dataset_id)\
-            .order_by(HarvestObject.gathered.desc())
-    source = query.first() # newest
-
-    if not source:
-        raise NotFound
-
-    return harvest_source_dictize(source,context)
 
 @side_effect_free
 def harvest_job_show(context,data_dict):
@@ -222,6 +213,11 @@ def harvest_job_report(context, data_dict):
 
 @side_effect_free
 def harvest_job_list(context,data_dict):
+    '''Returns a list of jobs and details of objects and errors.
+
+    :param status: filter by e.g. "New" or "Finished" jobs
+    :param source_id: filter by a harvest source
+    '''
 
     check_access('harvest_job_list',context,data_dict)
 
@@ -331,6 +327,7 @@ def stale_harvested_packages(context, data_dict):
 
 @side_effect_free
 def harvesters_info_show(context,data_dict):
+    '''Returns details of the installed harvesters.'''
 
     check_access('harvesters_info_show',context,data_dict)
 
@@ -344,6 +341,49 @@ def harvesters_info_show(context,data_dict):
         available_harvesters.append(info)
 
     return available_harvesters
+
+@side_effect_free
+def harvest_log_list(context,data_dict):
+    '''Returns a list of harvester log entries.
+
+    :param limit: number of logs to be shown default: 100
+    :param offset: use with ``per_page`` default: 0
+    :param level: filter log entries by level(debug, info, warning, error, critical)
+    '''
+
+    check_access('harvest_log_list', context, data_dict)
+
+    model = context['model']
+    session = context['session']
+
+    try:
+        limit = int(data_dict.get('limit', 100))
+    except ValueError:
+        limit = 100
+        
+    if data_dict.get('per_page', False):
+        try:
+            limit = int(data_dict.get('per_page', 100))
+        except ValueError:
+            limit = 100
+    
+    try:
+        offset = int(data_dict.get('offset', 0))
+    except ValueError:
+        offset = 0
+    
+    level = data_dict.get('level', None)
+
+    query = session.query(HarvestLog)
+
+    if level is not None:
+        query = query.filter(HarvestLog.level==level.upper())
+
+    query = query.order_by(HarvestLog.created.desc())
+    logs = query.offset(offset).limit(limit).all()
+    
+    out = [harvest_log_dictize(obj, context) for obj in logs]        
+    return out
 
 def _get_sources_for_user(context,data_dict):
 
