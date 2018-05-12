@@ -44,6 +44,22 @@
 
   {% block extra_config %}
   {{ form.textarea('config', id='field-config', label=_('Configuration'), value=data.config, error=errors.config) }}
+
+  {#
+      <div class="control-group">
+          <label class="control-label">{{  _('Email reports') }}</label>
+          <div class="controls">
+              {% for report_type in ['none','on_error', 'on_warning', 'always'] %}
+                  {% set checked = False %}
+                  <label class="radio">
+                      <input type="radio" name="email_reporting" value="{{ report_type }}" {{ "checked " if data.report_type == report_type or (not data.report_type and 'none' == report_type)}}>
+                      {{ report_type }}
+                  </label>
+              {% endfor %}
+          </div>
+      </div>
+    #}
+
   {% endblock extra_config %}
 
   {# if we have a default group then this wants remembering #}
