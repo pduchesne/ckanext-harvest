@@ -15,8 +15,9 @@ from ckan import model
 import ckan.plugins as p
 import ckan.lib.helpers as h, json
 from ckan.lib.base import BaseController, c, \
-                          request, response, render, abort, redirect
+                          request, response, render, abort
 
+from ckanext.harvest.logic import HarvestJobExists, HarvestSourceInactiveError
 from ckanext.harvest.plugin import DATASET_TYPE_NAME
 
 import logging
@@ -45,7 +46,7 @@ class ViewController(BaseController):
             else:
                 h.flash_success(_('Harvesting source successfully inactivated'))
 
-            redirect(h.url_for('{0}_admin'.format(DATASET_TYPE_NAME), id=id))
+            h.redirect_to(h.url_for('{0}_admin'.format(DATASET_TYPE_NAME), id=id))
         except p.toolkit.ObjectNotFound:
             abort(404,_('Harvest source not found'))
         except p.toolkit.NotAuthorized:
@@ -55,23 +56,25 @@ class ViewController(BaseController):
     def refresh(self, id):
         try:
             context = {'model':model, 'user':c.user, 'session':model.Session}
-            p.toolkit.get_action('harvest_job_create')(context,{'source_id':id})
-            h.flash_success(_('Refresh requested, harvesting will take place within 15 minutes.'))
+            p.toolkit.get_action('harvest_job_create')(
+                context, {'source_id': id, 'run': True})
+            h.flash_success(_('Harvest will start shortly. Refresh this page for updates.'))
         except p.toolkit.ObjectNotFound:
             abort(404,_('Harvest source not found'))
         except p.toolkit.NotAuthorized:
             abort(401,self.not_auth_message)
+        except HarvestSourceInactiveError, e:
+            h.flash_error(_('Cannot create new harvest jobs on inactive '
+                            'sources. First, please change the source status '
+                            'to \'active\'.'))
+        except HarvestJobExists, e:
+            h.flash_notice(_('A harvest job has already been scheduled for '
+                             'this source'))
         except Exception, e:
-            if 'Can not create jobs on inactive sources' in str(e):
-                h.flash_error(_('Cannot create new harvest jobs on inactive sources.'
-                                 + ' First, please change the source status to \'active\'.'))
-            elif 'There already is an unrun job for this source' in str(e):
-                h.flash_notice(_('A harvest job has already been scheduled for this source'))
-            else:
                 msg = 'An error occurred: [%s]' % str(e)
                 h.flash_error(msg)
 
-        redirect(h.url_for('{0}_admin'.format(DATASET_TYPE_NAME), id=id))
+        h.redirect_to(h.url_for('{0}_admin'.format(DATASET_TYPE_NAME), id=id))
 
     def clear(self, id):
         try:
@@ -86,7 +89,7 @@ class ViewController(BaseController):
             msg = 'An error occurred: [%s]' % str(e)
             h.flash_error(msg)
 
-        redirect(h.url_for('{0}_admin'.format(DATASET_TYPE_NAME), id=id))
+        h.redirect_to(h.url_for('{0}_admin'.format(DATASET_TYPE_NAME), id=id))
 
     def show_object(self, id, ref_type='object'):
 
@@ -192,6 +195,23 @@ class ViewController(BaseController):
             abort(404,_('Harvest source not found'))
         except p.toolkit.NotAuthorized:
             abort(401,self.not_auth_message)
+                
+    def abort_job(self, source, id):
+        try:
+            context = {'model':model, 'user':c.user}
+            c.job = p.toolkit.get_action('harvest_job_abort')(context, {'id': id})
+            c.harvest_source = p.toolkit.get_action('harvest_source_show')(context, {'id': source})
+            h.flash_success(_('Harvest job stopped'))
+            
+        except p.toolkit.ObjectNotFound:
+            abort(404,_('Harvest job not found'))
+        except p.toolkit.NotAuthorized:
+            abort(401,self.not_auth_message)
+        except Exception, e:
+            msg = 'An error occurred: [%s]' % str(e)
+            abort(500,msg)
+            
+        h.redirect_to(h.url_for('{0}_admin'.format(DATASET_TYPE_NAME), id=source))
 
     def show_last_job(self, source):
 

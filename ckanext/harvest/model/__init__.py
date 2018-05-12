@@ -8,8 +8,10 @@ from sqlalchemy import Table
 from sqlalchemy import Column
 from sqlalchemy import ForeignKey
 from sqlalchemy import types
+from sqlalchemy import Index
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.orm import backref, relation
+from sqlalchemy.exc import InvalidRequestError
 
 from ckan import model
 from ckan import logic
@@ -29,6 +31,7 @@ __all__ = [
     'HarvestObject', 'harvest_object_table',
     'HarvestGatherError', 'harvest_gather_error_table',
     'HarvestObjectError', 'harvest_object_error_table',
+    'HarvestLog', 'harvest_log_table'
 ]
 
 
@@ -38,6 +41,8 @@ harvest_object_table = None
 harvest_gather_error_table = None
 harvest_object_error_table = None
 harvest_object_extra_table = None
+harvest_log_table = None
+
 
 def setup():
 
@@ -45,43 +50,55 @@ def setup():
         define_harvester_tables()
         log.debug('Harvest tables defined in memory')
 
-    if model.package_table.exists():
-        if not harvest_source_table.exists():
-
-            # Create each table individually rather than
-            # using metadata.create_all()
-            harvest_source_table.create()
-            harvest_job_table.create()
-            harvest_object_table.create()
-            harvest_gather_error_table.create()
-            harvest_object_error_table.create()
-            harvest_object_extra_table.create()
-
-            log.debug('Harvest tables created')
-        else:
-            from ckan.model.meta import engine
-            log.debug('Harvest tables already exist')
-            # Check if existing tables need to be updated
-            inspector = Inspector.from_engine(engine)
-            columns = inspector.get_columns('harvest_source')
-            if not 'title' in [column['name'] for column in columns]:
-                log.debug('Harvest tables need to be updated')
-                migrate_v2()
-            if not 'frequency' in [column['name'] for column in columns]:
-                log.debug('Harvest tables need to be updated')
-                migrate_v3()
-
-            # Check if this instance has harvest source datasets
-            source_ids = Session.query(HarvestSource.id).filter_by(active=True).all()
-            source_package_ids = Session.query(model.Package.id).filter_by(type=u'harvest', state='active').all()
-            sources_to_migrate = set(source_ids) - set(source_package_ids)
-            if sources_to_migrate:
-                log.debug('Creating harvest source datasets for %i existing sources', len(sources_to_migrate))
-                sources_to_migrate = [s[0] for s in sources_to_migrate]
-                migrate_v3_create_datasets(sources_to_migrate)
-
-    else:
+    if not model.package_table.exists():
         log.debug('Harvest table creation deferred')
+        return
+
+    if not harvest_source_table.exists():
+
+        # Create each table individually rather than
+        # using metadata.create_all()
+        harvest_source_table.create()
+        harvest_job_table.create()
+        harvest_object_table.create()
+        harvest_gather_error_table.create()
+        harvest_object_error_table.create()
+        harvest_object_extra_table.create()
+        harvest_log_table.create()
+        
+        log.debug('Harvest tables created')
+    else:
+        from ckan.model.meta import engine
+        log.debug('Harvest tables already exist')
+        # Check if existing tables need to be updated
+        inspector = Inspector.from_engine(engine)
+        columns = inspector.get_columns('harvest_source')
+        column_names = [column['name'] for column in columns]
+        if not 'title' in column_names:
+            log.debug('Harvest tables need to be updated')
+            migrate_v2()
+        if not 'frequency' in column_names:
+            log.debug('Harvest tables need to be updated')
+            migrate_v3()
+
+        # Check if this instance has harvest source datasets
+        source_ids = Session.query(HarvestSource.id).filter_by(active=True).all()
+        source_package_ids = Session.query(model.Package.id).filter_by(type=u'harvest', state='active').all()
+        sources_to_migrate = set(source_ids) - set(source_package_ids)
+        if sources_to_migrate:
+            log.debug('Creating harvest source datasets for %i existing sources', len(sources_to_migrate))
+            sources_to_migrate = [s[0] for s in sources_to_migrate]
+            migrate_v3_create_datasets(sources_to_migrate)
+            
+        # Check if harvest_log table exist - needed for existing users
+        if not 'harvest_log' in inspector.get_table_names():
+            harvest_log_table.create()
+
+        # Check if harvest_object has a index
+        index_names = [index['name'] for index in inspector.get_indexes("harvest_object")]
+        if not "harvest_job_id_idx" in index_names:
+            log.debug('Creating index for harvest_object')
+            Index("harvest_job_id_idx", harvest_object_table.c.harvest_job_id).create()
 
 
 class HarvestError(Exception):
@@ -116,7 +133,13 @@ class HarvestSource(HarvestDomainObject):
        or "inactive". The harvesting processes are not fired on inactive
        sources.
     '''
-    pass
+    def __repr__(self):
+        return '<HarvestSource id=%s title=%s url=%s active=%r>' % \
+               (self.id, self.title, self.url, self.active)
+
+    def __str__(self):
+        return self.__repr__().encode('ascii', 'ignore')
+
 
 class HarvestJob(HarvestDomainObject):
     '''A Harvesting Job is performed in two phases. In first place, the
@@ -145,11 +168,54 @@ class HarvestGatherError(HarvestDomainObject):
     '''Gather errors are raised during the **gather** stage of a harvesting
        job.
     '''
-    pass
+    @classmethod
+    def create(cls, message, job):
+        '''
+        Helper function to create an error object and save it.
+        '''
+        err = cls(message=message, job=job)
+        try:
+            err.save()
+        except InvalidRequestError:
+            Session.rollback()
+            err.save()
+        finally:
+            # No need to alert administrator so don't log as an error
+            log.info(message)
+
 
 class HarvestObjectError(HarvestDomainObject):
     '''Object errors are raised during the **fetch** or **import** stage of a
        harvesting job, and are referenced to a specific harvest object.
+    '''
+    @classmethod
+    def create(cls, message, object, stage=u'Fetch', line=None):
+        '''
+        Helper function to create an error object and save it.
+        '''
+        err = cls(message=message, object=object,
+                  stage=stage, line=line)
+        try:
+            err.save()
+        except InvalidRequestError, e:
+            # Clear any in-progress sqlalchemy transactions
+            try:
+                Session.rollback()
+            except:
+                pass
+            try:
+                Session.remove()
+            except:
+                pass
+            err.save()
+        finally:
+            log_message = '{0}, line {1}'.format(message, line) \
+                          if line else message
+            log.debug(log_message)
+
+class HarvestLog(HarvestDomainObject):
+    '''HarvestLog objects are created each time something is logged
+       using python's standard logging module
     '''
     pass
 
@@ -173,6 +239,7 @@ def define_harvester_tables():
     global harvest_object_extra_table
     global harvest_gather_error_table
     global harvest_object_error_table
+    global harvest_log_table
 
     harvest_source_table = Table('harvest_source', metadata,
         Column('id', types.UnicodeText, primary_key=True, default=make_uuid),
@@ -196,12 +263,21 @@ def define_harvester_tables():
         Column('gather_finished', types.DateTime),
         Column('finished', types.DateTime),
         Column('source_id', types.UnicodeText, ForeignKey('harvest_source.id')),
+        # status: New, Running, Finished
         Column('status', types.UnicodeText, default=u'New', nullable=False),
     )
-    # Was harvested_document
+    # A harvest_object contains a representation of one dataset during a
+    # particular harvest
     harvest_object_table = Table('harvest_object', metadata,
         Column('id', types.UnicodeText, primary_key=True, default=make_uuid),
+        # The guid is the 'identity' of the dataset, according to the source.
+        # So if you reharvest it, then the harvester knows which dataset to
+        # update because of this identity. The identity needs to be unique
+        # within this CKAN.
         Column('guid', types.UnicodeText, default=u''),
+        # When you harvest a dataset multiple times, only the latest
+        # successfully imported harvest_object should be flagged 'current'.
+        # The import_stage usually reads and writes it.
         Column('current',types.Boolean,default=False),
         Column('gathered', types.DateTime, default=datetime.datetime.utcnow),
         Column('fetch_started', types.DateTime),
@@ -209,13 +285,16 @@ def define_harvester_tables():
         Column('fetch_finished', types.DateTime),
         Column('import_started', types.DateTime),
         Column('import_finished', types.DateTime),
+        # state: WAITING, FETCH, IMPORT, COMPLETE, ERROR
         Column('state', types.UnicodeText, default=u'WAITING'),
         Column('metadata_modified_date', types.DateTime),
         Column('retry_times',types.Integer, default=0),
         Column('harvest_job_id', types.UnicodeText, ForeignKey('harvest_job.id')),
         Column('harvest_source_id', types.UnicodeText, ForeignKey('harvest_source.id')),
         Column('package_id', types.UnicodeText, ForeignKey('package.id', deferrable=True), nullable=True),
+        # report_status: 'added', 'updated', 'not modified', 'deleted', 'errored'
         Column('report_status', types.UnicodeText, nullable=True),
+        Index('harvest_job_id_idx', 'harvest_job_id'),
     )
 
     # New table
@@ -240,6 +319,13 @@ def define_harvester_tables():
         Column('message', types.UnicodeText),
         Column('stage', types.UnicodeText),
         Column('line', types.Integer),
+        Column('created', types.DateTime, default=datetime.datetime.utcnow),
+    )
+    # Harvest Log table
+    harvest_log_table = Table('harvest_log', metadata,
+        Column('id', types.UnicodeText, primary_key=True, default=make_uuid),
+        Column('content', types.UnicodeText, nullable=False),
+        Column('level', types.Enum('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', name='log_level')),
         Column('created', types.DateTime, default=datetime.datetime.utcnow),
     )
 
@@ -316,6 +402,11 @@ def define_harvester_tables():
             ),
         },
     )
+    
+    mapper(
+        HarvestLog,
+        harvest_log_table,
+    )
 
     event.listen(HarvestObject, 'before_insert', harvest_object_before_insert_listener)
 
@@ -391,9 +482,11 @@ ALTER TABLE harvest_object_extra
 ALTER TABLE harvest_object_extra
 	ADD CONSTRAINT harvest_object_extra_harvest_object_id_fkey FOREIGN KEY (harvest_object_id) REFERENCES harvest_object(id);
 
-UPDATE harvest_object set state = 'COMPLETE';
+UPDATE harvest_object set state = 'COMPLETE' where package_id is not null;
+UPDATE harvest_object set state = 'ERROR' where package_id is null;
 UPDATE harvest_object set retry_times = 0;
-UPDATE harvest_object set report_status = 'new';
+UPDATE harvest_object set report_status = 'updated' where package_id is not null;
+UPDATE harvest_object set report_status = 'errored' where package_id is null;
 UPDATE harvest_source set frequency = 'MANUAL';
 
 ALTER TABLE harvest_object DROP CONSTRAINT harvest_object_package_id_fkey;
@@ -493,3 +586,14 @@ def migrate_v3_create_datasets(source_ids=None):
             log.info('Created new package for source {0} ({1})'.format(source.id, source.url))
         except logic.ValidationError,e:
             log.error('Validation Error: %s' % str(e.error_summary))
+
+def clean_harvest_log(condition):
+    Session.query(HarvestLog).filter(HarvestLog.created <= condition)\
+                                .delete(synchronize_session=False)
+    try:
+        Session.commit()
+    except InvalidRequestError:
+        Session.rollback()
+        log.error('An error occurred while trying to clean-up the harvest log table')
+
+    log.info('Harvest log table clean-up finished successfully')
