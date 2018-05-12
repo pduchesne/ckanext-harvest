@@ -193,6 +193,7 @@ class HarvestObjectError(HarvestDomainObject):
         '''
         Helper function to create an error object and save it.
         '''
+        message = unicode(message).encode('utf-8')
         err = cls(message=message, object=object,
                   stage=stage, line=line)
         try:
