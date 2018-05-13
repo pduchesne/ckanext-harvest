@@ -605,7 +605,7 @@ def harvest_jobs_run(context, data_dict):
                             log.error('Failed to send email report: %s' % e)
 
 
-                else:
+                    else:
                         job_obj.finished = job['gather_finished']
                     job_obj.save()
 
