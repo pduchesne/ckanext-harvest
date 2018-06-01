@@ -92,9 +92,9 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm, DefaultTranslation):
         '''Prevents the harvesters being shown in dataset search results.'''
 
         fq = search_params.get('fq', '')
-        if 'dataset_type:harvest' not in fq:
-            fq = u"{0} -dataset_type:harvest".format(search_params.get('fq', ''))
-            search_params.update({'fq': fq})
+        fq_list = search_params.get('fq_list', [])
+        fq_list.append('-dataset_type:harvest')
+        search_params['fq_list'] = fq_list
 
         return search_params
 
