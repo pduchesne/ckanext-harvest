@@ -93,7 +93,9 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm, DefaultTranslation):
 
         fq = search_params.get('fq', '')
         fq_list = search_params.get('fq_list', [])
-        fq_list.append('-dataset_type:harvest')
+
+        if '+dataset_type:harvest' not in fq_list:
+            fq_list.append('-dataset_type:harvest')
         search_params['fq_list'] = fq_list
 
         return search_params
