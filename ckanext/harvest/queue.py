@@ -64,7 +64,8 @@ def get_connection_redis():
     import redis
     return redis.StrictRedis(host=config.get('ckan.harvest.mq.hostname', HOSTNAME),
                           port=int(config.get('ckan.harvest.mq.port', REDIS_PORT)),
-                          db=int(config.get('ckan.harvest.mq.redis_db', REDIS_DB)))
+                          db=int(config.get('ckan.harvest.mq.redis_db', REDIS_DB)),
+                          password=int(config.get('ckan.harvest.mq.redis_password', None)))
 
 
 def get_gather_queue_name():
