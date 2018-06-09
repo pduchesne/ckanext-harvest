@@ -108,6 +108,3 @@ def harvest_source_reindex(context, data_dict):
         It forwards to harvest_source_update
     '''
     return harvest_source_update(context, data_dict)
-
-def harvest_job_abort(context, data_dict):
-    return harvest_jobs_run(context, data_dict)
