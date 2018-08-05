@@ -235,7 +235,6 @@ class CKANHarvester(HarvesterBase):
 
         if get_all_packages:
             # Request all remote packages
-            url = base_rest_url + '/package'
             try:
                 pkg_dicts = self._search_for_datasets(remote_ckan_base_url,
                                                       fq_terms)
