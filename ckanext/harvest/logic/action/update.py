@@ -552,8 +552,9 @@ def harvest_jobs_run(context, data_dict):
                             source_pkg = get_action('package_show')(context, {'id': job_obj.source.id})
                             source_config = job_obj.source.config and json.loads(job_obj.source.config)
     
-                            if (source_config['email_reporting'] == 'always' or
-                                    (source_config['email_reporting'] == 'on_error' and len(job_obj.gather_errors) > 0)):
+                            if ('email_reporting' in source_config and
+                                    (source_config['email_reporting'] == 'always' or
+                                    (source_config['email_reporting'] == 'on_error' and len(job_obj.gather_errors) > 0))):
                                 import ckan.lib.mailer
     
                                 creator = User.get(source_pkg['creator_user_id'])
