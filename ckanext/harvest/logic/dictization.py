@@ -74,6 +74,7 @@ def harvest_job_dictize(job, context):
             func.count(HarvestObjectExtra.value).label('warning_count')) \
             .join(HarvestObject) \
             .filter(HarvestObject.harvest_job_id==job.id) \
+            .filter(HarvestObjectExtra.key=='warnings') \
             .group_by(HarvestObjectExtra.value) \
             .order_by('warning_count desc') \
             .limit(context.get('error_summmary_limit', 20))
