@@ -60,7 +60,7 @@ class HarvesterBase(SingletonPlugin):
 
     @classmethod
     def _gen_new_name(cls, title, existing_name=None,
-                      append_type='number-sequence'):
+                      append_type='number-sequence', other_new_names=None):
         '''
         Returns a 'name' for the dataset (URL friendly), based on the title.
 
@@ -83,11 +83,11 @@ class HarvesterBase(SingletonPlugin):
         ideal_name = re.sub('-+', '-', ideal_name)  # collapse multiple dashes
         return cls._ensure_name_is_unique(ideal_name,
                                           existing_name=existing_name,
-                                          append_type=append_type)
+                                          append_type=append_type,other_new_names=other_new_names)
 
     @staticmethod
     def _ensure_name_is_unique(ideal_name, existing_name=None,
-                               append_type='number-sequence'):
+                               append_type='number-sequence', other_new_names=None):
         '''
         Returns a dataset name based on the ideal_name, only it will be
         guaranteed to be different than all the other datasets, by adding a
@@ -128,6 +128,10 @@ class HarvesterBase(SingletonPlugin):
                               .filter(Package.name.ilike(like_q))\
                               .all()
         taken = set([name_result[0] for name_result in name_results])
+
+        if (other_new_names):
+            taken = taken | set(other_new_names)
+
         if existing_name and existing_name in taken:
             taken.remove(existing_name)
         if ideal_name not in taken:
